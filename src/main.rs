@@ -1,10 +1,12 @@
 use chrono::{Datelike, Timelike};
 use poise::serenity_prelude::{self as serenity, ChannelId, CreateMessage, CreateScheduledEvent};
-use std::{sync::Arc, thread::current};
+use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc};
 
 struct Data {} // User data, which is stored and accessible in all command invocations
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, Data, Error>;
+
+static IMG_RUNNING: AtomicBool = AtomicBool::new(false);
 
 /// Displays your or another user's account creation date
 #[poise::command(slash_command, prefix_command)]
@@ -79,8 +81,16 @@ async fn daily_img(
 ) -> Result<(), Error> {
 
     let current_time = chrono::Utc::now();
+
+    if IMG_RUNNING.load(Ordering::Relaxed) == true {
+        println!("daily_img() called when thread already spawned");
+        return Ok(())
+    }
+
     println!("Notification loop started {}", current_time);
     tokio::spawn(async move {
+        IMG_RUNNING.store(true, Ordering::SeqCst);
+
         loop {
 
             let mut all_msgs: Vec<CreateMessage> = Vec::new();
@@ -145,6 +155,7 @@ async fn daily_img(
 
 #[tokio::main]
 async fn main() {
+    println!("Starting Bot");
     let token = std::env::var("DISCORD_TOKEN").expect("missing DISCORD_TOKEN");
     let intents = serenity::GatewayIntents::non_privileged();
 
