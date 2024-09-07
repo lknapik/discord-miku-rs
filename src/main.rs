@@ -1,5 +1,6 @@
 use chrono::{Datelike, Timelike};
 use poise::serenity_prelude::{self as serenity, ChannelId, CreateMessage, CreateScheduledEvent};
+use rspotify::{model::FullTrack, prelude::BaseClient};
 use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc};
 
 struct Data {} // User data, which is stored and accessible in all command invocations
@@ -45,6 +46,43 @@ async fn farting(
     Ok(())
 }
 
+fn song_webhook(
+    song: FullTrack
+) -> poise::CreateReply {
+
+    let embed = serenity::CreateEmbed::default()
+        .title(format!("{}", &song.name))
+        .image(&song.album.images[0].url);
+
+    poise::CreateReply::default().embed(embed)
+}
+
+/// Embed Spotify Link
+#[poise::command(slash_command, prefix_command)]
+async fn song_embed(
+    ctx: Context<'_>,
+    #[description = "link"] link: String
+) -> Result<(), Error> {
+
+    let re = regex::Regex::new(r"\w{22}").unwrap();
+    let uri = re.find(&link).unwrap();
+
+    let creds = rspotify::Credentials::from_env().unwrap();
+    let spotify = rspotify::ClientCredsSpotify::new(creds);
+    spotify.request_token().await.unwrap();
+
+    let res_song = spotify.track(rspotify::model::TrackId::from_id(uri.as_str()).unwrap() , None).await;
+
+    match res_song {
+        Ok(song) => {
+            let embed = song_webhook(song);
+            ctx.send(embed).await
+        },
+        Err(_) => ctx.say("Error finding song from link...").await
+    }.unwrap();
+
+    Ok(())
+}
 
 /// Messages the requesting user after the time has passed
 #[poise::command(slash_command, prefix_command)]
@@ -161,7 +199,7 @@ async fn main() {
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
-            commands: vec![age(), farting(), remindme()],
+            commands: vec![age(), farting(), remindme(), song_embed()],
             event_handler: |ctx, event, framework, data| {
                 Box::pin(event_handler(ctx.clone(), event, framework, data))
             },
