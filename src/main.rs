@@ -1,7 +1,7 @@
 use chrono::{Datelike, Timelike};
 use poise::serenity_prelude::{self as serenity, ChannelId, CreateMessage, CreateScheduledEvent};
 use rspotify::{model::FullTrack, prelude::BaseClient};
-use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc};
+use std::{fmt::Debug, sync::{atomic::{AtomicBool, Ordering}, Arc}};
 
 struct Data {} // User data, which is stored and accessible in all command invocations
 type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -46,12 +46,21 @@ async fn farting(
     Ok(())
 }
 
-fn song_webhook(
-    song: FullTrack
+async fn song_webhook(
+    song: &FullTrack
 ) -> poise::CreateReply {
 
+    let song = song.to_owned();
+
     let embed = serenity::CreateEmbed::default()
-        .title(format!("{}", &song.name))
+        .title(format!("{}", song.name))
+        .description(format!("{}\n\n{} - {}\n{}:{}", 
+            song.artists.into_iter().map(|a| a.name).collect::<Vec<String>>().join(", "), 
+            song.album.name, 
+            song.album.release_date.unwrap(),
+            song.duration.num_minutes(), song.duration.num_seconds().rem_euclid(60)
+        ))
+        .url(song.external_urls.get("spotify").unwrap())
         .image(&song.album.images[0].url);
 
     poise::CreateReply::default().embed(embed)
@@ -65,20 +74,28 @@ async fn song_embed(
 ) -> Result<(), Error> {
 
     let re = regex::Regex::new(r"\w{22}").unwrap();
-    let uri = re.find(&link).unwrap();
+    let uri = re.find(&link).unwrap();//bad url will panic here
 
     let creds = rspotify::Credentials::from_env().unwrap();
     let spotify = rspotify::ClientCredsSpotify::new(creds);
     spotify.request_token().await.unwrap();
 
-    let res_song = spotify.track(rspotify::model::TrackId::from_id(uri.as_str()).unwrap() , None).await;
+    let track_id = match rspotify::model::TrackId::from_id(uri.as_str()) {
+        Ok(track_id) => track_id,
+        Err(_) => panic!("Invalid track id")
+    };
+
+    let res_song = spotify.track(track_id , None).await;
 
     match res_song {
         Ok(song) => {
-            let embed = song_webhook(song);
-            ctx.send(embed).await
+            let embed = song_webhook(&song).await;
+
+            let mut attachment = serenity::CreateAttachment::url(ctx.http(), &song.preview_url.unwrap_or_else(|| "".to_string())).await.unwrap();
+            attachment.filename = format!("{}.mp3", song.name);
+            ctx.send(embed.attachment(attachment)).await
         },
-        Err(_) => ctx.say("Error finding song from link...").await
+        Err(_) => panic!("Failure to send message")
     }.unwrap();
 
     Ok(())
