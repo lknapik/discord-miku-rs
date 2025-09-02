@@ -1,11 +1,16 @@
 use chrono::{Datelike, Timelike};
 use poise::serenity_prelude::{self as serenity, ChannelId, CreateMessage, CreateScheduledEvent};
 use rspotify::{model::FullTrack, prelude::BaseClient};
-use std::{fmt::Debug, sync::{atomic::{AtomicBool, Ordering}, Arc}};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
-struct Data {} // User data, which is stored and accessible in all command invocations
-type Error = Box<dyn std::error::Error + Send + Sync>;
-type Context<'a> = poise::Context<'a, Data, Error>;
+mod silksong_secrets;
+
+pub struct Data {} // User data, which is stored and accessible in all command invocations
+pub type Error = Box<dyn std::error::Error + Send + Sync>;
+pub type Context<'a> = poise::Context<'a, Data, Error>;
 
 static IMG_RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -23,14 +28,21 @@ async fn age(
 
 /// Creates a new guild event
 #[poise::command(slash_command, prefix_command)]
-async fn farting(
-    ctx: Context<'_>
-) -> Result<(), Error> {
+async fn farting(ctx: Context<'_>) -> Result<(), Error> {
     let g = ctx.guild_id().unwrap();
 
-    let time = serenity::Timestamp::from_unix_timestamp(serenity::Timestamp::now().unix_timestamp()+60).unwrap();
-    let end_time = serenity::Timestamp::from_unix_timestamp(serenity::Timestamp::now().unix_timestamp()+3660).unwrap();
-    let mut event = CreateScheduledEvent::new(serenity::ScheduledEventType::External, "Group Farting".to_string(), time);
+    let time =
+        serenity::Timestamp::from_unix_timestamp(serenity::Timestamp::now().unix_timestamp() + 60)
+            .unwrap();
+    let end_time = serenity::Timestamp::from_unix_timestamp(
+        serenity::Timestamp::now().unix_timestamp() + 3660,
+    )
+    .unwrap();
+    let mut event = CreateScheduledEvent::new(
+        serenity::ScheduledEventType::External,
+        "Group Farting".to_string(),
+        time,
+    );
     event = event.location("Brap House");
     event = event.end_time(end_time);
 
@@ -38,7 +50,7 @@ async fn farting(
 
     match foo {
         Ok(_v) => (),
-        Err(e) => println!("{:?}", e)
+        Err(e) => println!("{:?}", e),
     };
 
     ctx.say("New farting event starting in 1 minute!").await?;
@@ -46,19 +58,22 @@ async fn farting(
     Ok(())
 }
 
-async fn song_webhook(
-    song: &FullTrack
-) -> poise::CreateReply {
-
+async fn song_webhook(song: &FullTrack) -> poise::CreateReply {
     let song = song.to_owned();
 
     let embed = serenity::CreateEmbed::default()
         .title(format!("{}", song.name))
-        .description(format!("{}\n\n{} - {}\n{}:{}", 
-            song.artists.into_iter().map(|a| a.name).collect::<Vec<String>>().join(", "), 
-            song.album.name, 
+        .description(format!(
+            "{}\n\n{} - {}\n{}:{}",
+            song.artists
+                .into_iter()
+                .map(|a| a.name)
+                .collect::<Vec<String>>()
+                .join(", "),
+            song.album.name,
             song.album.release_date.unwrap(),
-            song.duration.num_minutes(), song.duration.num_seconds().rem_euclid(60)
+            song.duration.num_minutes(),
+            song.duration.num_seconds().rem_euclid(60)
         ))
         .url(song.external_urls.get("spotify").unwrap())
         .image(&song.album.images[0].url);
@@ -68,13 +83,9 @@ async fn song_webhook(
 
 /// Embed Spotify Link
 #[poise::command(slash_command, prefix_command)]
-async fn song_embed(
-    ctx: Context<'_>,
-    #[description = "link"] link: String
-) -> Result<(), Error> {
-
+async fn song_embed(ctx: Context<'_>, #[description = "link"] link: String) -> Result<(), Error> {
     let re = regex::Regex::new(r"\w{22}").unwrap();
-    let uri = re.find(&link).unwrap();//bad url will panic here
+    let uri = re.find(&link).unwrap(); //bad url will panic here
 
     let creds = rspotify::Credentials::from_env().unwrap();
     let spotify = rspotify::ClientCredsSpotify::new(creds);
@@ -82,21 +93,27 @@ async fn song_embed(
 
     let track_id = match rspotify::model::TrackId::from_id(uri.as_str()) {
         Ok(track_id) => track_id,
-        Err(_) => panic!("Invalid track id")
+        Err(_) => panic!("Invalid track id"),
     };
 
-    let res_song = spotify.track(track_id , None).await;
+    let res_song = spotify.track(track_id, None).await;
 
     match res_song {
         Ok(song) => {
             let embed = song_webhook(&song).await;
 
-            let mut attachment = serenity::CreateAttachment::url(ctx.http(), &song.preview_url.unwrap_or_else(|| "".to_string())).await.unwrap();
+            let mut attachment = serenity::CreateAttachment::url(
+                ctx.http(),
+                &song.preview_url.unwrap_or_else(|| "".to_string()),
+            )
+            .await
+            .unwrap();
             attachment.filename = format!("{}.mp3", song.name);
             ctx.send(embed.attachment(attachment)).await
-        },
-        Err(_) => panic!("Failure to send message")
-    }.unwrap();
+        }
+        Err(_) => panic!("Failure to send message"),
+    }
+    .unwrap();
 
     Ok(())
 }
@@ -106,24 +123,28 @@ async fn song_embed(
 async fn remindme(
     ctx: Context<'_>,
     #[description = "minutes"] time: u64,
-    #[rest] #[description = "message"] msg: Option<String>
+    #[rest]
+    #[description = "message"]
+    msg: Option<String>,
 ) -> Result<(), Error> {
-    
     let user = ctx.author().to_owned();
-    
+
     let ctx1 = Arc::new(ctx.serenity_context().to_owned());
     tokio::spawn(async move {
         // sleep in thread
-        tokio::time::sleep(std::time::Duration::from_secs(time*60)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(time * 60)).await;
 
         let reply_msg = match msg {
             Some(msg) => msg,
-            None => "reminder".to_string()
+            None => "reminder".to_string(),
         };
-        
-        
-        let _ = user.direct_message(Arc::clone(&ctx1.http), CreateMessage::new().content(reply_msg)).await;
 
+        let _ = user
+            .direct_message(
+                Arc::clone(&ctx1.http),
+                CreateMessage::new().content(reply_msg),
+            )
+            .await;
     });
 
     ctx.say(":3").await?;
@@ -131,15 +152,12 @@ async fn remindme(
     Ok(())
 }
 
-async fn daily_img(
-    ctx: Arc<serenity::Context>
-) -> Result<(), Error> {
-
+async fn daily_img(ctx: Arc<serenity::Context>) -> Result<(), Error> {
     let current_time = chrono::Utc::now();
 
     if IMG_RUNNING.load(Ordering::Relaxed) == true {
         println!("daily_img() called when thread already spawned");
-        return Ok(())
+        return Ok(());
     }
 
     println!("Notification loop started {}", current_time);
@@ -147,44 +165,60 @@ async fn daily_img(
         IMG_RUNNING.store(true, Ordering::SeqCst);
 
         loop {
-
             let mut all_msgs: Vec<CreateMessage> = Vec::new();
-            
+
             let current_time = chrono::Utc::now();
 
             let mut message_builder = CreateMessage::new();
 
             //Sunday night in US
-            if current_time.weekday() == chrono::Weekday::Mon && current_time.hour() == 0 && current_time.minute() == 0 {
-                message_builder = message_builder.content("https://tenor.com/view/mondag-gif-24190364");
+            if current_time.weekday() == chrono::Weekday::Mon
+                && current_time.hour() == 0
+                && current_time.minute() == 0
+            {
+                message_builder =
+                    message_builder.content("https://tenor.com/view/mondag-gif-24190364");
                 all_msgs.push(message_builder.clone());
             }
 
-            if current_time.weekday() == chrono::Weekday::Sun && current_time.hour() == 4 && current_time.minute() == 3 {
-                message_builder = message_builder.content("https://tenor.com/view/neco-arc-dance-sleep-wojak-gif-23247049");
+            if current_time.weekday() == chrono::Weekday::Sun
+                && current_time.hour() == 4
+                && current_time.minute() == 3
+            {
+                message_builder = message_builder
+                    .content("https://tenor.com/view/neco-arc-dance-sleep-wojak-gif-23247049");
                 all_msgs.push(message_builder.clone());
-
             }
 
-            if current_time.weekday() == chrono::Weekday::Tue && current_time.hour() == 14 && current_time.minute() == 0 {
+            if current_time.weekday() == chrono::Weekday::Tue
+                && current_time.hour() == 14
+                && current_time.minute() == 0
+            {
                 message_builder = message_builder.content("https://media.discordapp.net/attachments/867525808092610600/867525973104787496/tueaday.png");
                 all_msgs.push(message_builder.clone());
-
             }
 
-            if current_time.weekday() == chrono::Weekday::Thu && current_time.hour() == 14 && current_time.minute() == 0 {
+            if current_time.weekday() == chrono::Weekday::Thu
+                && current_time.hour() == 14
+                && current_time.minute() == 0
+            {
                 message_builder = message_builder.content("https://tenor.com/view/yuyuko-touhou-fumo-fumo-plush-yuyuko-saigyouji-yuyu-bath-gif-24163441");
                 all_msgs.push(message_builder.clone());
             }
 
-            if current_time.weekday() == chrono::Weekday::Fri && current_time.hour() == 14 && current_time.minute() == 0 {
-                message_builder = message_builder.content("https://vxtwitter.com/scarletfumo/status/1375400199930179589");
+            if current_time.weekday() == chrono::Weekday::Fri
+                && current_time.hour() == 14
+                && current_time.minute() == 0
+            {
+                message_builder = message_builder
+                    .content("https://vxtwitter.com/scarletfumo/status/1375400199930179589");
                 all_msgs.push(message_builder.clone());
             }
 
             //post this cat on the 19th of every month
             if current_time.day() == 19 && current_time.hour() == 14 && current_time.minute() == 0 {
-                message_builder = message_builder.content("https://tenor.com/view/cat-kitty-pussycat-feline-gif-26001328");
+                message_builder = message_builder
+                    .content("https://tenor.com/view/cat-kitty-pussycat-feline-gif-26001328");
                 all_msgs.push(message_builder.clone());
             }
 
@@ -193,9 +227,11 @@ async fn daily_img(
                 message_builder = message_builder.content("https://youtu.be/HWTwt5zv04c");
                 all_msgs.push(message_builder.clone());
             }
-            
+
             for msg in all_msgs {
-                let _ = ChannelId::new(181058166967107584).send_message(&ctx, msg).await;
+                let _ = ChannelId::new(181058166967107584)
+                    .send_message(&ctx, msg)
+                    .await;
                 println!("Sending message at {}", current_time);
                 tokio::time::sleep(std::time::Duration::from_secs(10)).await;
             }
@@ -204,7 +240,24 @@ async fn daily_img(
         }
     });
 
+    Ok(())
+}
 
+/*
+Template to allow subcommands
+*/
+#[poise::command(
+    slash_command,
+    prefix_command,
+    subcommands(
+        "silksong_secrets::add",
+        "silksong_secrets::list",
+        "silksong_secrets::temp",
+        "silksong_secrets::delete",
+        "silksong_secrets::compare"
+    )
+)]
+async fn silksong(_ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
@@ -216,7 +269,7 @@ async fn main() {
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
-            commands: vec![age(), farting(), remindme(), song_embed()],
+            commands: vec![age(), farting(), remindme(), song_embed(), silksong()],
             event_handler: |ctx, event, framework, data| {
                 Box::pin(event_handler(ctx.clone(), event, framework, data))
             },
@@ -235,7 +288,6 @@ async fn main() {
         .await;
     client.unwrap().start().await.unwrap();
 }
-
 
 async fn event_handler(
     ctx: serenity::Context,
